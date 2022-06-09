@@ -4,3 +4,13 @@ background-repeat: no-repeat;
 background-size: 100%;
 background-attachment: fixed;
 }
+h1 {
+    font-family: 'Lato', sans-serif;
+    font-weight: 400;
+	color: white;
+}
+p {
+    font-family: 'Lato', sans-serif;
+    font-weight: 400;
+	color: white;
+}
