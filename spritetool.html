@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Auto Sprite Extractor</title>
+  <style>
+    body { font-family: sans-serif; padding: 2em; }
+    canvas { display: none; }
+    .output { margin-top: 1em; display: flex; flex-wrap: wrap; gap: 10px; }
+    .sprite-preview { border: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+  <h1>Auto Sprite Extractor</h1>
+  <input type="file" id="fileInput" accept="image/*">
+  <button onclick="extractSprites()">Detecteer Sprites</button>
+  <button onclick="downloadZip()">Download ZIP</button>
+  <div class="output" id="output"></div>
+
+  <canvas id="hiddenCanvas"></canvas>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script>
+    let sheetImage = null;
+    let spriteBlobs = [];
+
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        sheetImage = new Image();
+        sheetImage.onload = function() {
+          console.log('Afbeelding geladen');
+        }
+        sheetImage.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    function extractSprites() {
+      if (!sheetImage) {
+        alert('Laad eerst een spritesheet.');
+        return;
+      }
+
+      const canvas = document.getElementById('hiddenCanvas');
+      canvas.width = sheetImage.width;
+      canvas.height = sheetImage.height;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(sheetImage, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      const visited = new Uint8Array(canvas.width * canvas.height);
+      const sprites = [];
+      spriteBlobs = [];
+
+      function isTransparent(x, y) {
+        const idx = (y * canvas.width + x) * 4;
+        return imageData.data[idx + 3] === 0;
+      }
+
+      function floodFill(x, y, bounds) {
+        const stack = [[x, y]];
+        while (stack.length) {
+          const [cx, cy] = stack.pop();
+          const idx = cy * canvas.width + cx;
+          if (cx < 0 || cy < 0 || cx >= canvas.width || cy >= canvas.height || visited[idx]) continue;
+          if (isTransparent(cx, cy)) continue;
+
+          visited[idx] = 1;
+          bounds.minX = Math.min(bounds.minX, cx);
+          bounds.minY = Math.min(bounds.minY, cy);
+          bounds.maxX = Math.max(bounds.maxX, cx);
+          bounds.maxY = Math.max(bounds.maxY, cy);
+
+          stack.push([cx + 1, cy]);
+          stack.push([cx - 1, cy]);
+          stack.push([cx, cy + 1]);
+          stack.push([cx, cy - 1]);
+        }
+      }
+
+      for (let y = 0; y < canvas.height; y++) {
+        for (let x = 0; x < canvas.width; x++) {
+          const idx = y * canvas.width + x;
+          if (!visited[idx] && !isTransparent(x, y)) {
+            const bounds = { minX: x, minY: y, maxX: x, maxY: y };
+            floodFill(x, y, bounds);
+            const w = bounds.maxX - bounds.minX + 1;
+            const h = bounds.maxY - bounds.minY + 1;
+            if (w > 1 && h > 1) {
+              sprites.push({ x: bounds.minX, y: bounds.minY, w, h });
+            }
+          }
+        }
+      }
+
+      const output = document.getElementById('output');
+      output.innerHTML = '';
+
+      const tempCanvas = document.createElement('canvas');
+      const tempCtx = tempCanvas.getContext('2d');
+
+      sprites.forEach((sprite, i) => {
+        tempCanvas.width = sprite.w;
+        tempCanvas.height = sprite.h;
+        tempCtx.clearRect(0, 0, sprite.w, sprite.h);
+        tempCtx.drawImage(canvas, sprite.x, sprite.y, sprite.w, sprite.h, 0, 0, sprite.w, sprite.h);
+
+        tempCanvas.toBlob((blob) => {
+          spriteBlobs[i] = blob;
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `sprite_${i}.png`;
+          const img = document.createElement('img');
+          img.src = url;
+          img.classList.add('sprite-preview');
+          link.appendChild(img);
+          output.appendChild(link);
+        });
+      });
+    }
+
+    function downloadZip() {
+      if (spriteBlobs.length === 0) {
+        alert('Geen sprites om te downloaden.');
+        return;
+      }
+
+      const zip = new JSZip();
+      spriteBlobs.forEach((blob, i) => {
+        zip.file(`sprite_${i}.png`, blob);
+      });
+
+      zip.generateAsync({ type: "blob" }).then((content) => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(content);
+        a.download = "sprites.zip";
+        a.click();
+      });
+    }
+  </script>
+</body>
+</html>
