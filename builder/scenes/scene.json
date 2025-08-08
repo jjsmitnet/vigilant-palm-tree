@@ -1,0 +1,37 @@
+{
+  "meta": {
+    "engine": "scumm-lite",
+    "version": "0.4",
+    "width": 1280,
+    "height": 720
+  },
+  "background": null,
+  "parallaxLayers": [],
+  "player": {
+    "sprites": {
+      "up": null,
+      "down": null,
+      "left": null,
+      "right": null
+    },
+    "frameSize": [
+      32,
+      48
+    ],
+    "frames": 6,
+    "fps": 6,
+    "startPos": [
+      640,
+      480
+    ],
+    "dirMode": "fourDirNearest",
+    "diagSpeedFix": true,
+    "flipRightFromLeft": false
+  },
+  "walkableAreas": [],
+  "hotspots": [],
+  "audio": {
+    "midi": null,
+    "fallback": null
+  }
+}

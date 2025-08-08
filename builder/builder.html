@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SCUMM-lite Builder (Pages-ready)</title>
+  <style>
+    :root{--accent:#0b6efd}
+    body{font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial; margin:0; display:flex; height:100vh; background:#111}
+    #left{width:380px; border-right:1px solid #2a2a2a; padding:16px; box-sizing:border-box; overflow:auto; background:#0f0f0f; color:#ddd}
+    #right{flex:1; position:relative;}
+    h2{margin:8px 0 12px}
+    h3{margin:8px 0}
+    label{display:block;margin:8px 0 4px;font-size:13px}
+    input[type=file]{display:block}
+    button{background:var(--accent); color:white;border:0;padding:8px 12px;border-radius:6px;cursor:pointer}
+    button.ghost{background:transparent;border:1px solid #444;color:#ddd}
+    .tool-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+    #stage-parent{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+    #stage{background:#000; box-shadow: 0 6px 20px rgba(0,0,0,.6)}
+    .panel{background:#141414;padding:12px;border-radius:8px;margin-bottom:12px;border:1px solid #222}
+    .note{font-size:12px;color:#999}
+    input[type=number], input[type=text], select{width:100%;padding:6px;border:1px solid #333;border-radius:6px;background:#0d0d0d;color:#ddd}
+    textarea{width:100%;height:72px;background:#0d0d0d;border:1px solid #333;color:#ddd;border-radius:6px;padding:6px}
+    .row{display:flex;gap:8px}
+    .small{font-size:12px;color:#bbb}
+    .tools{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+    .activeTool{outline:3px solid rgba(11,110,253,.22)}
+    ul#parallaxList{list-style:none;padding:0;margin:8px 0}
+    ul#parallaxList li{display:flex;align-items:center;gap:8px;margin:6px 0}
+    ul#parallaxList li span{flex:1}
+  </style>
+  <script src="https://unpkg.com/konva@8/konva.min.js"></script>
+</head>
+<body>
+  <div id="left">
+    <h2>SCUMM-lite Builder</h2>
+
+    <div class="panel">
+      <label>Background image</label>
+      <input id="bgFile" type="file" accept="image/*">
+      <div class="note">Je kunt je geripte assets uploaden. In export worden data-URL's gebruikt (later te vervangen door /assets/ paden).</div>
+    </div>
+
+    <div class="panel">
+      <h3>Parallax layers</h3>
+      <div class="row">
+        <input id="parallaxFile" type="file" accept="image/*">
+        <input id="parallaxDepth" type="number" step="0.01" value="0.15" title="depth"/>
+        <button id="addParallax">Add</button>
+      </div>
+      <ul id="parallaxList"></ul>
+      <div class="note">Depth 0 = achter achtergrond, hogere waarden bewegen meer mee met muis in runtime.</div>
+    </div>
+
+    <div class="panel">
+      <h3>Tools</h3>
+      <div class="tools">
+        <button id="tool-pan">Pan</button>
+        <button id="tool-poly">Draw walkable polygon</button>
+        <button id="tool-edit">Edit points</button>
+        <button id="tool-hotspot-rect">Rect hotspot</button>
+        <button id="tool-hotspot-poly">Poly hotspot</button>
+      </div>
+      <div class="note">Walkable polygons bepalen waar het character mag lopen. Hotspots krijgen een actie (speech/link).</div>
+    </div>
+
+    <div class="panel">
+      <h3>Selected</h3>
+      <div id="selectedInfo" class="note">Geen selectie</div>
+      <div id="selectedProps" style="display:none">
+        <label>Type: <span id="selType"></span></label>
+        <div id="walkProps" style="display:none">
+          <label>Scale min (0.5-1.5)</label>
+          <input id="scaleMin" type="number" step="0.01" value="0.8">
+          <label>Scale max (0.5-1.5)</label>
+          <input id="scaleMax" type="number" step="0.01" value="1.2">
+        </div>
+        <div id="hotProps" style="display:none">
+          <label>Action type</label>
+          <select id="hotAction"><option value="speech">Speech</option><option value="link">Link</option></select>
+          <label>Text / URL</label>
+          <input id="hotText" type="text">
+          <label>Open in</label>
+          <select id="hotTarget"><option>_blank</option><option>_self</option></select>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px"><button id="deleteSel" class="ghost">Delete</button><button id="dupSel" class="ghost">Duplicate</button></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Sprites & animation</h3>
+      <div class="note">Upload <b>losse PNG-frames</b> per richting (6 per richting). De builder maakt automatisch een sprite sheet (horizontaal). Gesorteerd op bestandsnaam.</div>
+      <label>Up (meerdere PNG's)</label><input id="sprUp" type="file" accept="image/png" multiple>
+      <label>Down (meerdere PNG's)</label><input id="sprDown" type="file" accept="image/png" multiple>
+      <label>Left (meerdere PNG's)</label><input id="sprLeft" type="file" accept="image/png" multiple>
+      <label>Right (meerdere PNG's)</label><input id="sprRight" type="file" accept="image/png" multiple>
+      <div class="row">
+        <div style="flex:1"><label>Frame W</label><input id="frameW" type="number" value="32"></div>
+        <div style="flex:1"><label>Frame H</label><input id="frameH" type="number" value="48"></div>
+        <div style="flex:1"><label>Frames</label><input id="framesCount" type="number" value="6"></div>
+        <div style="flex:1"><label>FPS</label><input id="fps" type="number" value="6"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Audio</h3>
+      <label>MIDI file (optional)</label><input id="audioMidi" type="file" accept="audio/midi,.mid,.midi">
+      <label>Fallback OGG/MP3</label><input id="audioFallback" type="file" accept="audio/*">
+      <div class="small">In export komt zowel midi (dataURL) als fallback. Runtime kiest fallback of synth.</div>
+    </div>
+
+    <div class="panel">
+      <h3>Movement settings</h3>
+      <label>Direction handling</label>
+      <select id="dirMode">
+        <option value="fourDirNearest">4-direction (dominant axis)</option>
+        <option value="fourDirAngle">4-direction (by angle)</option>
+      </select>
+      <label><input type="checkbox" id="diagSpeedFix" checked> Diagonal speed fix (√2 correction)</label>
+      <label><input type="checkbox" id="flipRightFromLeft"> Flip right from left sprite</label>
+    </div>
+
+    <div class="panel">
+      <h3>Export / Import</h3>
+      <div class="tool-row">
+        <button id="exportBtn">Export scene.json</button>
+        <button id="importBtn" class="ghost">Import scene.json</button>
+        <input id="importFile" type="file" accept="application/json" style="display:none">
+      </div>
+      <div class="tool-row">
+        <button id="resetBtn" class="ghost">Reset canvas</button>
+      </div>
+      <div class="note">Gebruik op GitHub Pages: zet scene.json in /scenes/ en assets in /assets/.</div>
+    </div>
+  </div>
+
+  <div id="right">
+    <div id="stage-parent">
+      <div id="stage"></div>
+    </div>
+  </div>
+
+<script>
+const width = Math.min(window.innerWidth - 400, 1280);
+const height = Math.min(window.innerHeight - 40, 720);
+const stage = new Konva.Stage({ container: 'stage', width, height });
+const layer = new Konva.Layer();
+stage.add(layer);
+
+const bgGroup = new Konva.Group(); layer.add(bgGroup);
+const parallaxGroup = new Konva.Group(); layer.add(parallaxGroup);
+const walkGroup = new Konva.Group(); layer.add(walkGroup);
+const hotGroup = new Konva.Group(); layer.add(hotGroup);
+
+let bgImageNode = null; let bgDataUrl = null;
+let currentTool = 'pan';
+let drawingPolygon = null;
+let drawingHotspot = null;
+let polygons = [];
+let hotspots = [];
+let selected = null;
+const transformer = new Konva.Transformer({ rotateEnabled:false, enabledAnchors:['top-left','top-right','bottom-left','bottom-right']});
+layer.add(transformer);
+
+function setBackground(imgObj){
+  if (bgImageNode) bgImageNode.destroy();
+  bgImageNode = new Konva.Image({ image: imgObj, x:0, y:0, width: width, height: height });
+  bgGroup.add(bgImageNode);
+  layer.draw();
+}
+
+function setTool(t){
+  currentTool = t;
+  document.querySelectorAll('.tools button').forEach(b=>b.classList.remove('activeTool'));
+  const map = { pan:'tool-pan', poly:'tool-poly', edit:'tool-edit', rect:'tool-hotspot-rect', polyHot:'tool-hotspot-poly' };
+  const id = map[t]; if(id) document.getElementById(id).classList.add('activeTool');
+}
+setTool('pan');
+
+function download(filename, text){
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], {type:'application/json'})); a.download = filename; a.click();
+}
+function dataURLFromFile(file){ return new Promise((res, rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file); }); }
+async function imageFromFile(file){ const data = await dataURLFromFile(file); const img = await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=data; }); return {img, data}; }
+
+document.getElementById('bgFile').addEventListener('change', async (e)=>{ const f=e.target.files[0]; if(!f) return; bgDataUrl = await dataURLFromFile(f); const img=new Image(); img.onload=()=> setBackground(img); img.src=bgDataUrl; });
+
+document.getElementById('tool-pan').addEventListener('click', ()=> setTool('pan'));
+document.getElementById('tool-poly').addEventListener('click', ()=> setTool('poly'));
+document.getElementById('tool-edit').addEventListener('click', ()=> setTool('edit'));
+document.getElementById('tool-hotspot-rect').addEventListener('click', ()=> setTool('rect'));
+document.getElementById('tool-hotspot-poly').addEventListener('click', ()=> setTool('polyHot'));
+
+stage.on('contentClick', function(){
+  const pos = stage.getPointerPosition(); if(!pos) return;
+  if(currentTool==='poly'){
+    if(!drawingPolygon){
+      drawingPolygon = new Konva.Line({ points:[pos.x,pos.y], closed:false, stroke:'#00aa00', strokeWidth:2, draggable:false });
+      walkGroup.add(drawingPolygon);
+    } else {
+      drawingPolygon.points(drawingPolygon.points().concat([pos.x,pos.y]));
+    }
+    layer.draw();
+  }
+  if(currentTool==='rect'){
+    const rect = new Konva.Rect({ x:pos.x, y:pos.y, width:120, height:60, stroke:'#ffcc00', strokeWidth:2, fill:'rgba(255,204,0,0.12)', draggable:true });
+    hotGroup.add(rect);
+    const id = 'hot_'+Date.now();
+    hotspots.push({ id, shapeType:'rect', node:rect, action:{type:'speech', text:'Hallo {{visitors}}'} });
+    bindSelectable(rect,'hotspot',id);
+    layer.draw();
+  }
+  if(currentTool==='polyHot'){
+    if(!drawingHotspot){
+      drawingHotspot = new Konva.Line({ points:[pos.x,pos.y], closed:false, stroke:'#ff6600', strokeWidth:2, draggable:false });
+      hotGroup.add(drawingHotspot);
+    } else {
+      drawingHotspot.points(drawingHotspot.points().concat([pos.x,pos.y]));
+    }
+    layer.draw();
+  }
+});
+
+stage.on('contentDblclick', function(){
+  if(drawingPolygon){
+    const pts = drawingPolygon.points(); if(pts.length<6){ drawingPolygon.destroy(); drawingPolygon=null; layer.draw(); return; }
+    drawingPolygon.closed(true); drawingPolygon.fill('rgba(0,170,0,0.12)');
+    const id = 'walk_'+Date.now(); polygons.push({ id, node:drawingPolygon, scaleMin:0.8, scaleMax:1.2 });
+    bindSelectable(drawingPolygon,'walk',id); drawingPolygon=null; layer.draw();
+  }
+  if(drawingHotspot){
+    const pts = drawingHotspot.points(); if(pts.length<6){ drawingHotspot.destroy(); drawingHotspot=null; layer.draw(); return; }
+    drawingHotspot.closed(true); drawingHotspot.fill('rgba(255,102,0,0.12)');
+    const id = 'hot_'+Date.now(); hotspots.push({ id, shapeType:'poly', node:drawingHotspot, action:{type:'speech', text:''} });
+    bindSelectable(drawingHotspot,'hotspot',id); drawingHotspot=null; layer.draw();
+  }
+});
+
+function bindSelectable(node, type, id){
+  node.on('click', (e)=>{ e.cancelBubble = true; selectItem(type,id,node); });
+}
+
+function selectItem(type, id, node){
+  selected = {type,id};
+  transformer.nodes([]);
+  if(type==='hotspot' && hotspots.find(h=>h.id===id)?.shapeType==='rect') transformer.nodes([node]);
+  document.getElementById('selectedInfo').style.display='none';
+  document.getElementById('selectedProps').style.display='block';
+  document.getElementById('selType').innerText = type;
+  document.getElementById('walkProps').style.display = (type==='walk')? 'block' : 'none';
+  document.getElementById('hotProps').style.display = (type==='hotspot')? 'block' : 'none';
+  if(type==='walk'){
+    const p = polygons.find(x=>x.id===id); document.getElementById('scaleMin').value=p.scaleMin; document.getElementById('scaleMax').value=p.scaleMax;
+  }
+  if(type==='hotspot'){
+    const h = hotspots.find(x=>x.id===id); document.getElementById('hotAction').value=h.action.type; document.getElementById('hotText').value=h.action.text||''; document.getElementById('hotTarget').value=h.action.openIn||'_blank';
+  }
+}
+
+function deleteSelection(){ if(!selected) return; if(selected.type==='walk'){ const i=polygons.findIndex(p=>p.id===selected.id); if(i>=0){ polygons[i].node.destroy(); polygons.splice(i,1);} } else { const i=hotspots.findIndex(h=>h.id===selected.id); if(i>=0){ hotspots[i].node.destroy(); hotspots.splice(i,1);} } selected=null; transformer.nodes([]); document.getElementById('selectedProps').style.display='none'; document.getElementById('selectedInfo').style.display='block'; layer.draw(); }
+function duplicateSelection(){ if(!selected) return; if(selected.type==='walk'){ const p=polygons.find(x=>x.id===selected.id); const clone=p.node.clone({ x:p.node.x()+10, y:p.node.y()+10 }); walkGroup.add(clone); const id='walk_'+Date.now(); polygons.push({id,node:clone,scaleMin:p.scaleMin,scaleMax:p.scaleMax}); bindSelectable(clone,'walk',id);} else { const h=hotspots.find(x=>x.id===selected.id); const clone=h.node.clone({ x:h.node.x()+10, y:h.node.y()+10 }); hotGroup.add(clone); const id='hot_'+Date.now(); hotspots.push({id,shapeType:h.shapeType,node:clone,action:{...h.action}}); bindSelectable(clone,'hotspot',id);} layer.draw(); }
+
+document.getElementById('deleteSel').addEventListener('click', deleteSelection);
+document.getElementById('dupSel').addEventListener('click', duplicateSelection);
+
+document.getElementById('scaleMin').addEventListener('change', ()=>{ if(selected?.type==='walk'){ const p=polygons.find(x=>x.id===selected.id); p.scaleMin=parseFloat(document.getElementById('scaleMin').value)||p.scaleMin; }});
+document.getElementById('scaleMax').addEventListener('change', ()=>{ if(selected?.type==='walk'){ const p=polygons.find(x=>x.id===selected.id); p.scaleMax=parseFloat(document.getElementById('scaleMax').value)||p.scaleMax; }});
+document.getElementById('hotAction').addEventListener('change', ()=>{ if(selected?.type==='hotspot'){ const h=hotspots.find(x=>x.id===selected.id); h.action.type=document.getElementById('hotAction').value; }});
+document.getElementById('hotText').addEventListener('input', ()=>{ if(selected?.type==='hotspot'){ const h=hotspots.find(x=>x.id===selected.id); h.action.text=document.getElementById('hotText').value; }});
+document.getElementById('hotTarget').addEventListener('change', ()=>{ if(selected?.type==='hotspot'){ const h=hotspots.find(x=>x.id===selected.id); h.action.openIn=document.getElementById('hotTarget').value; }});
+
+const sprites = { up:null, down:null, left:null, right:null };
+async function buildSheetFromFiles(fileList){
+  const files = Array.from(fileList || []).sort((a,b)=> a.name.localeCompare(b.name)); if(!files.length) return null;
+  const imgs = await Promise.all(files.map(imageFromFile));
+  const w = imgs[0].img.width, h = imgs[0].img.height; for(const f of imgs){ if(f.img.width!==w || f.img.height!==h){ alert('Alle frames moeten dezelfde afmetingen hebben.'); return null; } }
+  const canvas = document.createElement('canvas'); canvas.width = w * imgs.length; canvas.height = h; const ctx = canvas.getContext('2d'); imgs.forEach((f,ix)=> ctx.drawImage(f.img, ix*w, 0));
+  const dataUrl = canvas.toDataURL('image/png'); return { dataUrl, frameW:w, frameH:h, frames: imgs.length };
+}
+['sprUp','sprDown','sprLeft','sprRight'].forEach(id=>{ document.getElementById(id).addEventListener('change', async (e)=>{ const res = await buildSheetFromFiles(e.target.files); if(!res) return; document.getElementById('frameW').value=res.frameW; document.getElementById('frameH').value=res.frameH; document.getElementById('framesCount').value=res.frames; if(id==='sprUp') sprites.up=res.dataUrl; if(id==='sprDown') sprites.down=res.dataUrl; if(id==='sprLeft') sprites.left=res.dataUrl; if(id==='sprRight') sprites.right=res.dataUrl; }); });
+
+let midiData = null; let fallbackAudio = null;
+document.getElementById('audioMidi').addEventListener('change', async (e)=>{ const f=e.target.files[0]; if(!f)return; midiData = await dataURLFromFile(f); });
+document.getElementById('audioFallback').addEventListener('change', async (e)=>{ const f=e.target.files[0]; if(!f)return; fallbackAudio = await dataURLFromFile(f); });
+
+function buildSceneJSON(){
+  const walk = polygons.map(p=>({ id:p.id, points: p.node.points(), scaleMin:p.scaleMin, scaleMax:p.scaleMax }));
+  const hot = hotspots.map(h=>{ const node=h.node; let shape=null; if(h.shapeType==='rect') shape={type:'rect', x:node.x(), y:node.y(), w:node.width(), h:node.height()}; if(h.shapeType==='poly') shape={type:'poly', points: node.points()}; return { id:h.id, shape, action:h.action }; });
+  const parallaxLayers = window.parallaxImages.map((layer, idx)=>({ id:`layer_${idx}`, depth:layer.depth, image:layer.dataUrl }));
+  const scene = {
+    meta:{ engine:'scumm-lite', version:'0.4', width, height },
+    background: bgDataUrl || null,
+    parallaxLayers,
+    player: {
+      sprites: { up:sprites.up, down:sprites.down, left:sprites.left, right:sprites.right },
+      frameSize: [parseInt(document.getElementById('frameW').value||32), parseInt(document.getElementById('frameH').value||48)],
+      frames: parseInt(document.getElementById('framesCount').value||6),
+      fps: parseInt(document.getElementById('fps').value||6),
+      startPos: [Math.floor(width/2), Math.floor(height*0.6)],
+      dirMode: document.getElementById('dirMode').value,
+      diagSpeedFix: document.getElementById('diagSpeedFix').checked,
+      flipRightFromLeft: document.getElementById('flipRightFromLeft').checked
+    },
+    walkableAreas: walk,
+    hotspots: hot,
+    audio: { midi:midiData, fallback:fallbackAudio }
+  };
+  return scene;
+}
+
+document.getElementById('exportBtn').addEventListener('click', ()=>{ const scene=buildSceneJSON(); download('scene.json', JSON.stringify(scene,null,2)); });
+document.getElementById('importBtn').addEventListener('click', ()=> document.getElementById('importFile').click());
+document.getElementById('importFile').addEventListener('change', async (e)=>{
+  const f=e.target.files[0]; if(!f) return; const txt=await f.text(); try{ const obj=JSON.parse(txt); loadScene(obj); }catch(err){ alert('Invalid JSON'); }
+});
+
+function loadScene(obj){
+  polygons.forEach(p=>p.node.destroy()); polygons=[]; hotspots.forEach(h=>h.node && h.node.destroy()); hotspots=[]; parallaxGroup.destroyChildren(); window.parallaxImages=[];
+  if(obj.background){ const img=new Image(); img.onload=()=> setBackground(img); img.src=obj.background; bgDataUrl=obj.background; }
+  if(Array.isArray(obj.parallaxLayers)){
+    for(const L of obj.parallaxLayers){ const img=new Image(); img.onload=()=>{ const n=new Konva.Image({ image:img, x:0,y:0, width:width, height:height, opacity:0.9 }); parallaxGroup.add(n); layer.draw(); }; img.src=L.image; window.parallaxImages.push({dataUrl:L.image, depth:L.depth}); }
+    renderParallaxList();
+  }
+  if(obj.walkableAreas){ obj.walkableAreas.forEach(w=>{ const line=new Konva.Line({ points:w.points, closed:true, stroke:'#00aa00', strokeWidth:2, fill:'rgba(0,170,0,0.12)' }); walkGroup.add(line); const id=w.id||('walk_'+Date.now()); polygons.push({ id, node:line, scaleMin:w.scaleMin||0.8, scaleMax:w.scaleMax||1.2 }); bindSelectable(line,'walk',id); }); }
+  if(obj.hotspots){ obj.hotspots.forEach(h=>{ if(h.shape?.type==='rect'){ const r=new Konva.Rect({ x:h.shape.x, y:h.shape.y, width:h.shape.w, height:h.shape.h, stroke:'#ffcc00', strokeWidth:2, fill:'rgba(255,204,0,0.12)', draggable:true }); hotGroup.add(r); const id=h.id||('hot_'+Date.now()); hotspots.push({ id, shapeType:'rect', node:r, action:h.action||{type:'speech',text:''} }); bindSelectable(r,'hotspot',id);} if(h.shape?.type==='poly'){ const l=new Konva.Line({ points:h.shape.points, closed:true, stroke:'#ff6600', strokeWidth:2, fill:'rgba(255,102,0,0.12)' }); hotGroup.add(l); const id=h.id||('hot_'+Date.now()); hotspots.push({ id, shapeType:'poly', node:l, action:h.action||{type:'speech',text:''} }); bindSelectable(l,'hotspot',id);} }); }
+  layer.draw();
+}
+
+document.getElementById('resetBtn').addEventListener('click', ()=>{ if(confirm('Reset canvas?')){ polygons.forEach(p=>p.node.destroy()); polygons=[]; hotspots.forEach(h=>h.node && h.node.destroy()); hotspots=[]; parallaxGroup.destroyChildren(); window.parallaxImages=[]; if(bgImageNode) bgImageNode.destroy(); bgImageNode=null; bgDataUrl=null; transformer.nodes([]); layer.draw(); renderParallaxList(); }});
+
+stage.on('click', (e)=>{ if(e.target===stage){ selected=null; transformer.nodes([]); document.getElementById('selectedProps').style.display='none'; document.getElementById('selectedInfo').style.display='block'; } });
+
+setInterval(()=>{
+  walkGroup.find('.point').forEach(n=>n.destroy()); hotGroup.find('.point').forEach(n=>n.destroy());
+  if(currentTool==='edit'){
+    polygons.forEach(p=>{
+      const pts = p.node.points();
+      for(let i=0;i<pts.length;i+=2){ const cx=pts[i], cy=pts[i+1]; const c=new Konva.Circle({ x:cx, y:cy, radius:5, fill:'#fff', stroke:'#00a', strokeWidth:1, draggable:true, name:'point'});
+        c.on('dragend', function(){ const arr=p.node.points(); let nearest=0, best=1e9; for(let j=0;j<arr.length;j+=2){ const dx=arr[j]-cx, dy=arr[j+1]-cy; const d=dx*dx+dy*dy; if(d<best){best=d;nearest=j;} } arr[nearest]=c.x(); arr[nearest+1]=c.y(); p.node.points(arr); layer.draw(); });
+        walkGroup.add(c);
+      }
+    });
+    hotspots.filter(h=>h.shapeType==='poly').forEach(h=>{
+      const pts = h.node.points();
+      for(let i=0;i<pts.length;i+=2){ const cx=pts[i], cy=pts[i+1]; const c=new Konva.Circle({ x:cx, y:cy, radius:5, fill:'#fff', stroke:'#a50', strokeWidth:1, draggable:true, name:'point'});
+        c.on('dragend', function(){ const arr=h.node.points(); let nearest=0,best=1e9; for(let j=0;j<arr.length;j+=2){ const dx=arr[j]-cx, dy=arr[j+1]-cy; const d=dx*dx+dy*dy; if(d<best){best=d;nearest=j;} } arr[nearest]=c.x(); arr[nearest+1]=c.y(); h.node.points(arr); layer.draw(); });
+        hotGroup.add(c);
+      }
+    });
+  }
+  layer.draw();
+}, 300);
+
+window.parallaxImages = [];
+function renderParallaxList(){
+  const ul = document.getElementById('parallaxList'); ul.innerHTML='';
+  window.parallaxImages.forEach((L, idx)=>{
+    const li=document.createElement('li');
+    const span=document.createElement('span'); span.textContent = `depth ${L.depth}`;
+    const up=document.createElement('button'); up.textContent='↑'; up.className='ghost'; up.onclick=()=>{ if(idx>0){ const t=window.parallaxImages[idx-1]; window.parallaxImages[idx-1]=window.parallaxImages[idx]; window.parallaxImages[idx]=t; renderParallaxList(); }};
+    const down=document.createElement('button'); down.textContent='↓'; down.className='ghost'; down.onclick=()=>{ if(idx<window.parallaxImages.length-1){ const t=window.parallaxImages[idx+1]; window.parallaxImages[idx+1]=window.parallaxImages[idx]; window.parallaxImages[idx]=t; renderParallaxList(); }};
+    const del=document.createElement('button'); del.textContent='✕'; del.className='ghost'; del.onclick=()=>{ window.parallaxImages.splice(idx,1); parallaxGroup.destroyChildren(); renderParallaxList(); };
+    li.append(span, up, down, del); ul.appendChild(li);
+  });
+}
+
+document.getElementById('addParallax').addEventListener('click', async ()=>{
+  const f = document.getElementById('parallaxFile').files[0]; const depth = parseFloat(document.getElementById('parallaxDepth').value||0.1);
+  if(!f) return; const dataUrl = await dataURLFromFile(f); window.parallaxImages.push({ dataUrl, depth });
+  const img=new Image(); img.onload=()=>{ const n=new Konva.Image({ image:img, x:0,y:0, width:width, height:height, opacity:0.9 }); parallaxGroup.add(n); layer.draw(); }; img.src=dataUrl;
+  renderParallaxList();
+});
+</script>
+</body>
+</html>

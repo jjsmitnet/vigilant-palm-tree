@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SCUMM‑lite Runtime</title>
+  <style>
+    html,body{margin:0;height:100%;background:#000;}
+    #game{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000}
+    canvas{image-rendering: pixelated; image-rendering: crisp-edges;}
+    #speech{position:fixed;left:0;right:0;bottom:0;height:88px;background:rgba(0,0,0,0.78);color:#fff;font-family:monospace;font-size:18px;line-height:1.4;padding:12px 16px;box-sizing:border-box;border-top:1px solid rgba(255,255,255,.08)}
+    #speech.hidden{display:none}
+  </style>
+  <!-- Tone.js + @tonejs/midi for optional MIDI synth (CDN) -->
+  <script src="https://unpkg.com/tone@14.8.49/build/Tone.min.js"></script>
+  <script src="https://unpkg.com/@tonejs/midi@2.0.28/build/Midi.min.js"></script>
+</head>
+<body>
+<div id="game"><canvas id="cv"></canvas></div>
+<div id="speech" class="hidden"></div>
+<script>
+const SCENE_URL = 'scenes/scene.json';
+const lerp=(a,b,t)=>a+(b-a)*t; const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+function pointInPoly(x,y,pts){let c=false; for(let i=0,j=pts.length-2;i<pts.length;i+=2){const xi=pts[i],yi=pts[i+1],xj=pts[j],yj=pts[j+1]; const inter=((yi>y)!=(yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi+1e-9)+xi); if(inter) c=!c; j=i;} return c;}
+function scaleFromY(y, poly){const pts=poly.points; let minY=1e9,maxY=-1e9; for(let i=1;i<pts.length;i+=2){minY=Math.min(minY,pts[i]);maxY=Math.max(maxY,pts[i]);} const t=clamp((y-minY)/(maxY-minY||1),0,1); return lerp(poly.scaleMin??1, poly.scaleMax??1, t);}
+function typewriter(el,text){el.classList.remove('hidden'); el.textContent=''; let i=0; const id=setInterval(()=>{ el.textContent+=text[i++]||''; if(i>=text.length) clearInterval(id); }, 18);}
+function getVisitorCount(){const k='scumm_visits'; const n=(+localStorage.getItem(k)||0)+1; localStorage.setItem(k,String(n)); return n;}
+function template(str,data){return str.replace(/\{\{(.*?)\}\}/g,(_,k)=> (data[k.trim()] ?? ''));}
+
+const game={ scene:null, bg:null, parallax:[], cvs:null, ctx:null, scale:1, viewW:0, viewH:0, mouseX:0, mouseY:0, startedAudio:false };
+const player={ x:0,y:0,tx:0,ty:0,speed:120,dir:'down',frame:0,acc:0,fps:6,frames:6,frameW:32,frameH:48,sheets:{up:null,down:null,left:null,right:null},flipRight:false };
+let last=0;
+
+fetch(SCENE_URL).then(r=>r.json()).then(initScene).catch(err=>{ console.error(err); alert('Kon scenes/scene.json niet laden.'); });
+
+async function initScene(scene){
+  game.scene=scene;
+  const logicalW = scene.meta?.width || 1280; const logicalH = scene.meta?.height || 720;
+  const cv=document.getElementById('cv'); cv.width=logicalW; cv.height=logicalH; game.cvs=cv; game.ctx=cv.getContext('2d');
+  resize(); window.addEventListener('resize', resize);
+
+  if(scene.background){ game.bg=await loadImage(scene.background); }
+  if(Array.isArray(scene.parallaxLayers)){
+    for(const L of scene.parallaxLayers){ const img=await loadImage(L.image); game.parallax.push({img, depth: Number(L.depth)||0.1}); }
+  }
+
+  player.frames=scene.player?.frames||6; player.fps=scene.player?.fps||6; player.frameW=scene.player?.frameSize?.[0]||32; player.frameH=scene.player?.frameSize?.[1]||48;
+  player.x=scene.player?.startPos?.[0]||logicalW*0.5; player.y=scene.player?.startPos?.[1]||logicalH*0.6; player.tx=player.x; player.ty=player.y; player.flipRight=!!scene.player?.flipRightFromLeft;
+  const sp=scene.player?.sprites||{}; player.sheets.up=sp.up?await loadImage(sp.up):null; player.sheets.down=sp.down?await loadImage(sp.down):null; player.sheets.left=sp.left?await loadImage(sp.left):null;
+  if(sp.right){ player.sheets.right=await loadImage(sp.right); } else if(player.flipRight && player.sheets.left){ player.sheets.right=await makeFlipped(player.sheets.left); }
+
+  game.audio={ midi: scene.audio?.midi||null, fallback: scene.audio?.fallback||null, el:null };
+
+  game.cvs.addEventListener('click', onClick);
+  game.cvs.addEventListener('mousemove', (e)=>{ const r=game.cvs.getBoundingClientRect(); game.mouseX=(e.clientX-r.left)/game.scale; game.mouseY=(e.clientY-r.top)/game.scale; });
+
+  requestAnimationFrame(loop);
+}
+
+function resize(){ const cv=game.cvs; if(!cv) return; const vw=innerWidth, vh=innerHeight; const s=Math.min(vw/cv.width, vh/cv.height); game.scale=s; game.viewW=cv.width*s; game.viewH=cv.height*s; cv.style.width=game.viewW+'px'; cv.style.height=game.viewH+'px'; }
+async function loadImage(src){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=src; }); }
+async function makeFlipped(img){ const c=document.createElement('canvas'); c.width=img.width; c.height=img.height; const x=c.getContext('2d'); x.translate(c.width,0); x.scale(-1,1); x.drawImage(img,0,0); const out=new Image(); out.src=c.toDataURL('image/png'); await out.decode(); return out; }
+
+function onClick(e){
+  const rect=game.cvs.getBoundingClientRect(); const x=(e.clientX-rect.left)/game.scale; const y=(e.clientY-rect.top)/game.scale;
+  if(!game.startedAudio){ startMusic(); game.startedAudio=true; }
+  const hs=(game.scene.hotspots||[]).find(h=> hitHotspot(h,x,y)); if(hs){ handleHotspot(hs); return; }
+  const poly=(game.scene.walkableAreas||[]).find(w=> pointInPoly(x,y,w.points)); if(!poly) return; player.tx=x; player.ty=y;
+}
+
+function hitHotspot(h,x,y){ if(!h.shape) return false; if(h.shape.type==='rect'){ return x>=h.shape.x && x<=h.shape.x+h.shape.w && y>=h.shape.y && y<=h.shape.y+h.shape.h; } if(h.shape.type==='poly'){ return pointInPoly(x,y,h.shape.points); } return false; }
+function handleHotspot(h){ const a=h.action||{type:'speech'}; if(a.type==='link' && a.url){ window.open(a.url, a.openIn||'_blank'); return; } if(a.type==='speech'){ const visitors=getVisitorCount(); const msg=template(a.text||'', {visitors}); typewriter(document.getElementById('speech'), msg); } }
+
+async function startMusic(){
+  if(game.audio?.fallback){ const el=new Audio(game.audio.fallback); el.loop=true; el.volume=0.8; await el.play().catch(()=>{}); game.audio.el=el; return; }
+  if(game.audio?.midi){ try{ await playMidi(game.audio.midi); }catch(e){ console.warn('MIDI synth faalde, geen audio.', e); } }
+}
+
+async function playMidi(dataUrl){
+  await Tone.start();
+  const resp = await fetch(dataUrl); const arr = await resp.arrayBuffer(); const midi = new Midi(arr);
+  const synths = [];
+  const now = Tone.now()+0.2;
+  midi.tracks.forEach(track=>{
+    const synth = new Tone.PolySynth(Tone.Synth).toDestination();
+    synths.push(synth);
+    track.notes.forEach(n=>{ synth.triggerAttackRelease(n.name, n.duration, n.time+now, n.velocity); });
+  });
+}
+
+function loop(ts){ const dt=(ts-(last||ts))/1000; last=ts; update(dt); draw(); requestAnimationFrame(loop); }
+function chooseDir(dx,dy){ const mode=game.scene.player?.dirMode||'fourDirNearest'; if(mode==='fourDirAngle'){ const ang=Math.atan2(dy,dx); const deg=ang*180/Math.PI; if(deg>-135 && deg<=-45) return 'up'; if(deg>45 && deg<=135) return 'down'; if(deg>-45 && deg<=45) return 'right'; return 'left'; } return Math.abs(dx)>Math.abs(dy) ? (dx>0?'right':'left') : (dy>0?'down':'up'); }
+function update(dt){ const dx=player.tx-player.x, dy=player.ty-player.y, dist=Math.hypot(dx,dy); if(dist>1){ player.dir=chooseDir(dx,dy); let vx=dx/dist, vy=dy/dist; const diagFix=game.scene.player?.diagSpeedFix!==false; if(vx&&vy&&diagFix){ vx*=Math.SQRT1_2; vy*=Math.SQRT1_2; } const speed=player.speed; player.x+=vx*speed*dt; player.y+=vy*speed*dt; player.acc+=dt; const spf=1/(player.fps||6); if(player.acc>=spf){ player.acc-=spf; player.frame=(player.frame+1)%(player.frames||6); } } }
+function draw(){ const {ctx}=game; if(!ctx) return; const W=ctx.canvas.width, H=ctx.canvas.height; ctx.clearRect(0,0,W,H);
+  if(game.bg) ctx.drawImage(game.bg,0,0,W,H);
+  if(game.parallax.length){ const cx=W/2, cy=H/2; const mx=(game.mouseX||cx)-cx; const my=(game.mouseY||cy)-cy; for(const L of game.parallax){ const offX = -mx * L.depth; const offY = -my * L.depth; ctx.drawImage(L.img, offX, offY, W, H); } }
+  let scl=1; const poly=(game.scene.walkableAreas||[]).find(w=> pointInPoly(player.x,player.y,w.points)); if(poly) scl=scaleFromY(player.y,poly);
+  const sheet = player.sheets[player.dir] || player.sheets.down; if(sheet){ const fw=player.frameW, fh=player.frameH, frames=player.frames||6; const idx=Math.min(player.frame, frames-1); const sx=Math.floor(idx*fw); const dw=Math.floor(fw*scl), dh=Math.floor(fh*scl); ctx.imageSmoothingEnabled=false; ctx.drawImage(sheet, sx, 0, fw, fh, Math.floor(player.x-dw/2), Math.floor(player.y-dh), dw, dh); }
+}
+</script>
+</body>
+</html>
